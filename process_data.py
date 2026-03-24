@@ -216,20 +216,17 @@ def apply_training_curve(rows, lifetime_hours):
         assoc_sc_week_hours[(r["default_id"], r["SC_CODE_ID"])][(r["year"], r["week"])] += r["HOURS"]
 
     # Hours before the 13-week window.
-    # The lifetime CSV contains PRE-WINDOW hours only (the BQ query
-    # already excludes the 13-week window), so we use it directly —
-    # no in_window subtraction needed. The old code subtracted in_window,
-    # which double-deflated hours and produced artificially low tiers.
-    assoc_sc_before = {
-        (assoc, sc): lifetime_hours.get((assoc, sc), 0.0)
-        for (assoc, sc) in assoc_sc_week_hours
-    }
-
-    # True all-time total = pre-window (CSV) + all hours in the window
-    assoc_sc_total = {
-        (assoc, sc): lifetime_hours.get((assoc, sc), 0.0) + sum(week_hrs.values())
-        for (assoc, sc), week_hrs in assoc_sc_week_hours.items()
-    }
+    # The lifetime CSV is an ALL-TIME total (pre-window + window combined).
+    # Subtract window hours to isolate what the associate had BEFORE the window.
+    # Fallback: if (assoc, sc) is missing from the CSV, assume lifetime == in_window
+    # (i.e. they are brand-new to this SC code, zero pre-window history).
+    assoc_sc_before = {}
+    assoc_sc_total = {}
+    for (assoc, sc), week_hrs in assoc_sc_week_hours.items():
+        in_window = sum(week_hrs.values())
+        lifetime = lifetime_hours.get((assoc, sc), in_window)
+        assoc_sc_before[(assoc, sc)] = max(0.0, lifetime - in_window)
+        assoc_sc_total[(assoc, sc)] = lifetime   # CSV is already all-time
 
     def hrs_at_week_start(assoc, sc, wk):
         before = assoc_sc_before.get((assoc, sc), 0.0)
