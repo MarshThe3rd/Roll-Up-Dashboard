@@ -68,7 +68,10 @@ HTML_TEMPLATE = r"""
   <div class="flex flex-wrap gap-3 items-end">
     <div><label class="block text-xs font-semibold text-gray-500 mb-1">Super Department</label><select id="f-sd"></select></div>
     <div><label class="block text-xs font-semibold text-gray-500 mb-1">SC Code / Department</label><select id="f-sc"></select></div>
+    <div><label class="block text-xs font-semibold text-gray-500 mb-1">Shift</label><select id="f-shift"></select></div>
     <div><label class="block text-xs font-semibold text-gray-500 mb-1">Associate</label><select id="f-assoc"></select></div>
+    <div><label class="block text-xs font-semibold text-gray-500 mb-1">From Week</label><select id="f-wk-from"></select></div>
+    <div><label class="block text-xs font-semibold text-gray-500 mb-1">To Week</label><select id="f-wk-to"></select></div>
     <div id="flag-wrap"><label class="block text-xs font-semibold text-gray-500 mb-1">Show</label>
       <select id="f-flag"><option value="">All Associates</option><option value="1">❗ Flagged Only</option></select></div>
     <button onclick="resetFilters()" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold">Reset</button>
@@ -123,7 +126,7 @@ HTML_TEMPLATE = r"""
 const DATA = __DATA_PLACEHOLDER__;
 let activeTab = 'weekly';
 const charts = {};
-const filters = { sd:'', sc:'', assoc:'', flag:'' };
+const filters = { sd:'', sc:'', assoc:'', flag:'', shift:'', weekFrom:'', weekTo:'' };
 
 const SD_CLR = {'Pick':'#0053e2','Pack':'#7c3aed','Ship Dock':'#0891b2','Receive':'#15803d',
   'Stock':'#92400e','Stocking':'#92400e','Inbound':'#65a30d','Orderfilling':'#c026d3',
@@ -150,7 +153,8 @@ function computeFlags(rows){
     if(!g[k][wk])g[k][wk]={p:0,h:0};
     g[k][wk].p+=r.ADJUSTED_PCT_TO_GOAL*(r.HOURS||0);g[k][wk].h+=r.HOURS||0;
   }
-  const wks=DATA.weeks.map(w=>`${w.year}-${w.week}`),last=wks[wks.length-1];
+  const aw=getActiveWeeks();
+  const wks=aw.map(w=>`${w.year}-${w.week}`),last=wks[wks.length-1];
   const flags=new Set();
   for(const[k,wm]of Object.entries(g)){
     let b=0,br=false;
@@ -161,12 +165,33 @@ function computeFlags(rows){
 }
 function assocFlagged(aid,flags){return[...flags].some(k=>k.startsWith(aid+'|||'));}
 
+// ---- Week helpers ----
+function wkKey(w){return`${w.year}-${String(w.week).padStart(2,'0')}`;}
+function getActiveWeeks(){
+  const all=DATA.weeks;
+  const from=filters.weekFrom,to=filters.weekTo;
+  if(!from&&!to)return all;
+  return all.filter(w=>{
+    const k=wkKey(w);
+    if(from&&k<from)return false;
+    if(to&&k>to)return false;
+    return true;
+  });
+}
+
 // ---- Filtering ----
 function getRows(){
+  const activeKeys=new Set(getActiveWeeks().map(wkKey));
   return DATA.rows.filter(r=>{
     if(filters.sd&&r.SUPER_DEPARTMENT!==filters.sd)return false;
     if(filters.sc&&r.SC_CODE_ID!==filters.sc)return false;
     if(filters.assoc&&r.default_id!==filters.assoc)return false;
+    if(filters.shift){
+      const a=DATA.associates[r.default_id];
+      if(!a||a.shift!==filters.shift)return false;
+    }
+    const k=`${r.year}-${String(r.week).padStart(2,'0')}`;
+    if(!activeKeys.has(k))return false;
     return true;
   });
 }
@@ -177,11 +202,47 @@ function initFilters(){
   const sdEl=document.getElementById('f-sd');
   sdEl.innerHTML='<option value="">All Super Depts</option>';
   sds.forEach(sd=>{sdEl.innerHTML+=`<option value="${sd}">${sd}</option>`;});
+
+  // Shift dropdown — built from associates metadata
+  const shifts=[...new Set(Object.values(DATA.associates).map(a=>a.shift).filter(Boolean))].sort();
+  const shiftEl=document.getElementById('f-shift');
+  shiftEl.innerHTML='<option value="">All Shifts</option>';
+  shifts.forEach(s=>{shiftEl.innerHTML+=`<option value="${s}">${s}</option>`;});
+
+  // Week range dropdowns
+  const wkFromEl=document.getElementById('f-wk-from');
+  const wkToEl=document.getElementById('f-wk-to');
+  wkFromEl.innerHTML='<option value="">Earliest</option>';
+  wkToEl.innerHTML='<option value="">Latest</option>';
+  DATA.weeks.forEach(w=>{
+    const k=wkKey(w),lbl=wkLbl(w)+` (${w.week_start})`;
+    wkFromEl.innerHTML+=`<option value="${k}">${lbl}</option>`;
+    wkToEl.innerHTML+=`<option value="${k}">${lbl}</option>`;
+  });
+
   rebuildSC();rebuildAssoc();
   sdEl.addEventListener('change',e=>{filters.sd=e.target.value;filters.sc='';rebuildSC();onFilter();});
   document.getElementById('f-sc').addEventListener('change',e=>{filters.sc=e.target.value;onFilter();});
+  document.getElementById('f-shift').addEventListener('change',e=>{filters.shift=e.target.value;rebuildAssoc();onFilter();});
   document.getElementById('f-assoc').addEventListener('change',e=>{filters.assoc=e.target.value;onFilter();});
   document.getElementById('f-flag').addEventListener('change',e=>{filters.flag=e.target.value;onFilter();});
+  document.getElementById('f-wk-from').addEventListener('change',e=>{
+    filters.weekFrom=e.target.value;
+    // auto-advance To if it's now before From
+    if(filters.weekFrom&&filters.weekTo&&filters.weekTo<filters.weekFrom){
+      filters.weekTo=filters.weekFrom;
+      document.getElementById('f-wk-to').value=filters.weekTo;
+    }
+    onFilter();
+  });
+  document.getElementById('f-wk-to').addEventListener('change',e=>{
+    filters.weekTo=e.target.value;
+    if(filters.weekFrom&&filters.weekTo&&filters.weekTo<filters.weekFrom){
+      filters.weekFrom=filters.weekTo;
+      document.getElementById('f-wk-from').value=filters.weekFrom;
+    }
+    onFilter();
+  });
 }
 function rebuildSC(){
   const codes=Object.entries(DATA.sc_codes).filter(([,v])=>!filters.sd||v.super_department===filters.sd).sort(([,a],[,b])=>a.department.localeCompare(b.department));
@@ -191,7 +252,15 @@ function rebuildSC(){
   if(filters.sc)el.value=filters.sc;
 }
 function rebuildAssoc(){
-  const base=DATA.rows.filter(r=>(filters.sd?r.SUPER_DEPARTMENT===filters.sd:true)&&(filters.sc?r.SC_CODE_ID===filters.sc:true));
+  const base=DATA.rows.filter(r=>{
+    if(filters.sd&&r.SUPER_DEPARTMENT!==filters.sd)return false;
+    if(filters.sc&&r.SC_CODE_ID!==filters.sc)return false;
+    if(filters.shift){
+      const a=DATA.associates[r.default_id];
+      if(!a||a.shift!==filters.shift)return false;
+    }
+    return true;
+  });
   let aids;
   if(filters.flag==='1'){const fl=computeFlags(base);aids=new Set([...fl].map(k=>k.split('|||')[0]));}
   else aids=new Set(base.map(r=>r.default_id));
@@ -204,8 +273,8 @@ function rebuildAssoc(){
 }
 function onFilter(){rebuildAssoc();render();}
 function resetFilters(){
-  Object.assign(filters,{sd:'',sc:'',assoc:'',flag:''});
-  ['f-sd','f-sc','f-assoc','f-flag'].forEach(id=>document.getElementById(id).value='');
+  Object.assign(filters,{sd:'',sc:'',assoc:'',flag:'',shift:'',weekFrom:'',weekTo:''});
+  ['f-sd','f-sc','f-assoc','f-flag','f-shift','f-wk-from','f-wk-to'].forEach(id=>document.getElementById(id).value='');
   rebuildSC();rebuildAssoc();render();
 }
 
@@ -240,12 +309,13 @@ function renderAssocBanner(aid,rows,flags){
   const tI=rows.reduce((s,r)=>s+(r.IDLE_HOURS||0),0);
   const avg=tH>0?wg.reduce((s,r)=>s+r.ADJUSTED_PCT_TO_GOAL*(r.HOURS||0),0)/wg.reduce((s,r)=>s+(r.HOURS||0),0):null;
   const idlePct=tH>0?(tI/tH)*100:null;
-  const wksBelow=computeWeeksBelow(aid,DATA.rows);
+  const wksBelow=computeWeeksBelow(aid,rows);
+  const nWks=getActiveWeeks().length;
   const kpis=[
-    {l:'Total Hours (13 wks)',v:tH.toFixed(1)+'h',c:'#0053e2'},
+    {l:'Total Hours (filtered)',v:tH.toFixed(1)+'h',c:'#0053e2'},
     {l:'Avg Adj % to Goal',v:avg!=null?avg.toFixed(1)+'%':'—',c:avg==null?'#6b7280':avg>=100?'#2a8703':avg>=90?'#f59e0b':'#ea1100'},
     {l:'Avg Idle %',v:idlePct!=null?idlePct.toFixed(1)+'%':'—',c:idlePct!=null&&idlePct>15?'#ea1100':'#0053e2'},
-    {l:'Weeks Below 100%',v:wksBelow+'/13',c:wksBelow>=4?'#ea1100':'#2a8703'},
+    {l:`Weeks Below 100% (of ${nWks})`,v:wksBelow+'/'+nWks,c:wksBelow>=4?'#ea1100':'#2a8703'},
   ];
   document.getElementById('assoc-kpis').innerHTML=kpis.map(k=>`<div class="rounded-xl p-3" style="background:rgba(255,255,255,.15)"><div class="text-xl font-black" style="color:${k.c===('#ea1100')||k.c==='#2a8703'?k.c:'#ffc220'}">${k.v}</div><div class="text-xs opacity-75 mt-1">${k.l}</div></div>`).join('');
 }
@@ -270,9 +340,9 @@ function renderOverallChart(rows){
     wkMap[wk].h+=r.HOURS||0;
     if(r.ADJUSTED_PCT_TO_GOAL!=null&&r.GOAL!=null){wkMap[wk].p+=r.ADJUSTED_PCT_TO_GOAL*(r.HOURS||0);}
   }
-  const labels=DATA.weeks.map(wkLbl);
-  const pctVals=DATA.weeks.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat((e.p/e.h).toFixed(2)):null;});
-  const idleVals=DATA.weeks.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat(((e.ih/e.h)*100).toFixed(2)):null;});
+  const aw=getActiveWeeks(),labels=aw.map(wkLbl);
+  const pctVals=aw.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat((e.p/e.h).toFixed(2)):null;});
+  const idleVals=aw.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat(((e.ih/e.h)*100).toFixed(2)):null;});
   const ptClr=pctVals.map(v=>v==null?'#9ca3af':v>=100?'#2a8703':v>=90?'#f59e0b':v>=80?'#f97316':'#ea1100');
   destroy('overall');
   charts['overall']=new Chart(document.getElementById('chart-overall').getContext('2d'),{
@@ -293,7 +363,7 @@ function renderPerSCCharts(rows){
   // destroy old charts
   Object.keys(charts).filter(k=>k.startsWith('sc-')).forEach(k=>destroy(k));
   grid.innerHTML='';
-  const labels=DATA.weeks.map(wkLbl);
+  const aw=getActiveWeeks(),labels=aw.map(wkLbl);
   scCodes.forEach((sc,i)=>{
     const info=DATA.sc_codes[sc]||{};
     const scRows=rows.filter(r=>r.SC_CODE_ID===sc&&r.GOAL!=null);
@@ -303,8 +373,8 @@ function renderPerSCCharts(rows){
       if(!wkMap[wk])wkMap[wk]={p:0,h:0,ih:0};
       wkMap[wk].p+=r.ADJUSTED_PCT_TO_GOAL*(r.HOURS||0);wkMap[wk].h+=r.HOURS||0;wkMap[wk].ih+=r.IDLE_HOURS||0;
     }
-    const pctVals=DATA.weeks.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat((e.p/e.h).toFixed(2)):null;});
-    const idleVals=DATA.weeks.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat(((e.ih/e.h)*100).toFixed(2)):null;});
+    const pctVals=aw.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat((e.p/e.h).toFixed(2)):null;});
+    const idleVals=aw.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat(((e.ih/e.h)*100).toFixed(2)):null;});
     const ptClr=pctVals.map(v=>v==null?'#9ca3af':v>=100?'#2a8703':v>=90?'#f59e0b':v>=80?'#f97316':'#ea1100');
     const canvasId=`sc-canvas-${i}`;
     const card=document.createElement('div');
@@ -332,8 +402,8 @@ function renderAggChart(rows){
     if(!wkMap[wk])wkMap[wk]={p:0,h:0};
     wkMap[wk].p+=r.ADJUSTED_PCT_TO_GOAL*(r.HOURS||0);wkMap[wk].h+=r.HOURS||0;
   }
-  const labels=DATA.weeks.map(wkLbl);
-  const vals=DATA.weeks.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat((e.p/e.h).toFixed(2)):null;});
+  const aw=getActiveWeeks(),labels=aw.map(wkLbl);
+  const vals=aw.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat((e.p/e.h).toFixed(2)):null;});
   const ptClr=vals.map(v=>v==null?'#9ca3af':v>=100?'#2a8703':v>=90?'#f59e0b':v>=80?'#f97316':'#ea1100');
   destroy('agg');
   charts['agg']=new Chart(document.getElementById('chart-agg').getContext('2d'),{
@@ -363,13 +433,14 @@ function renderWeeklyTable(rows,flags){
   if(filters.flag==='1')combos=combos.filter(c=>flags.has(`${c.aid}|||${c.sc}`));
   combos.sort((a,b)=>a.sd.localeCompare(b.sd)||a.dept.localeCompare(b.dept)||assocLbl(a.aid).localeCompare(assocLbl(b.aid)));
   if(!combos.length)return'<p class="p-10 text-gray-400 text-center">No data for current filters.</p>';
+  const aw=getActiveWeeks();
   const showAssocCol=!filters.assoc;
   let h='<table class="w-full"><thead><tr>';
   if(showAssocCol)h+=`<th class="s1 text-left" style="min-width:180px">Associate</th>`;
   h+=`<th class="${showAssocCol?'s2':'s1'} text-left" style="min-width:210px">SC Code / Department</th>`;
   h+='<th>Super Dept</th>';
-  DATA.weeks.forEach(w=>h+=`<th>${wkLbl(w)}<br><span style="font-weight:400;font-size:.65rem">${w.week_start}</span><br><span style="font-weight:400;font-size:.6rem;opacity:.7">Adj% / Idle%</span></th>`);
-  h+='<th>Wks&lt;100%</th></tr></thead><tbody>';
+  aw.forEach(w=>h+=`<th>${wkLbl(w)}<br><span style="font-weight:400;font-size:.65rem">${w.week_start}</span><br><span style="font-weight:400;font-size:.6rem;opacity:.7">Adj% / Idle%</span></th>`);
+  h+=`<th>Wks&lt;100%</th></tr></thead><tbody>`;
   for(const c of combos){
     const fl=flags.has(`${c.aid}|||${c.sc}`),col=sdClr(c.sd);
     h+='<tr>';
@@ -377,7 +448,7 @@ function renderWeeklyTable(rows,flags){
     h+=`<td class="${showAssocCol?'s2':'s1'}"><span class="font-mono text-xs text-gray-400">${c.sc}</span><br>${c.dept}</td>`;
     h+=`<td><span class="pill" style="background:${col}22;color:${col}">${c.sd}</span></td>`;
     let below=0;
-    for(const w of DATA.weeks){
+    for(const w of aw){
       const e=c.wks[`${w.year}-${w.week}`];
       if(!e||e.h===0){h+='<td class="cn text-center">—</td>';continue;}
       const avg=e.p/e.h;if(avg<100)below++;
@@ -385,7 +456,7 @@ function renderWeeklyTable(rows,flags){
       const mb=e.mult!=null&&e.mult<1?`<span class="badge-t">${(e.mult*100).toFixed(0)}%</span> `:"";
       h+=`<td class="${pCls(avg)} text-right">${mb}${avg.toFixed(1)}%<br><span style="font-size:.7rem;color:#6b7280">${idle!=null?idle.toFixed(1)+'% idle':''}</span></td>`;
     }
-    h+=`<td class="text-center font-bold ${below>=4?'text-red-600':'text-gray-600'}">${below}/13</td></tr>`;
+    h+=`<td class="text-center font-bold ${below>=4?'text-red-600':'text-gray-600'}">${below}/${aw.length}</td></tr>`;
   }
   h+=`</tbody></table><p class="px-4 py-2 text-xs text-gray-400">${combos.length.toLocaleString()} assoc × SC combinations. Each cell: Adj % to goal / Idle %.</p>`;
   return h;
@@ -455,6 +526,9 @@ function render(){
     renderPerSCCharts(rows);
   } else {
     renderTeamKPIs(rows);
+    const nw=getActiveWeeks().length;
+    document.querySelector('#agg-chart-section h2').textContent=
+      `Weekly Avg Adjusted % to Goal — All Filtered Associates (${nw} Week${nw===1?'':'s'})`;
     renderAggChart(rows);
   }
 
