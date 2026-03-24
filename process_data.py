@@ -99,11 +99,24 @@ def load_performance(path, associates):
 
 
 def load_lifetime(path):
+    """Loads all-time hours per (default_id, SC_CODE_ID).
+
+    Three defensive fixes vs. the original:
+    1. utf-8-sig — handles BOM that BigQuery CSV exports include;
+       without it the first record's key gets a \ufeff prefix and
+       silently misses the lifetime lookup, zeroing that associate's
+       pre-window hours.
+    2. .strip() on both key fields — guards against trailing whitespace
+       that causes key mismatches on lookup.
+    3. Accumulate with += instead of overwrite — in case the query
+       returns more than one row per (assoc, sc) pair.
+    """
     data = {}
-    with open(path, newline="", encoding="utf-8") as f:
+    with open(path, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
-            key = (row["default_id"], row["SC_CODE_ID"])
-            data[key] = _float(row["total_lifetime_hours"]) or 0.0
+            key = (row["default_id"].strip(), row["SC_CODE_ID"].strip())
+            hours = _float(row["total_lifetime_hours"]) or 0.0
+            data[key] = data.get(key, 0.0) + hours
     print(f"  Loaded {len(data):,} lifetime hour records")
     return data
 
