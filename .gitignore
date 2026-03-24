@@ -1,0 +1,23 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Generated output (contains associate performance data)
+TPA_Productivity_Dashboard.html
+bigquery_results/
+
+# Raw BQ data exports (contain employee performance data - not for VCS)
+*.csv
+
+# Logs
+*.log
+
+# Error dumps
+*_error.txt
+
+# OS
+.DS_Store
+Thumbs.db

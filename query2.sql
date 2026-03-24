@@ -1,0 +1,62 @@
+-- Query 2 REVISED: 13 weeks of TPA associate performance
+-- Adapted to match actual schema of VIEWS_ASSOCIATE_PERFORMANCE_DAY
+-- NOTE: WM_FISCAL_YEAR/WM_FISCAL_WEEK not in view; using calendar week via DATE_TRUNC
+-- NOTE: 'name' not in view; using NETWORK_NAME as associate identifier
+-- NOTE: GOAL/RATE_PER_HOUR/PCT_TO_GOAL calculated by joining INPUTS_DEPARTMENTGOAL
+WITH
+week_bounds AS (
+  -- Get the 13 most recent calendar weeks with TPA data
+  SELECT DISTINCT
+    DATE_TRUNC(DATE, WEEK(SATURDAY)) AS week_start,
+    DATE_ADD(DATE_TRUNC(DATE, WEEK(SATURDAY)), INTERVAL 6 DAY) AS week_end,
+    EXTRACT(YEAR FROM DATE_TRUNC(DATE, WEEK(SATURDAY))) AS cal_year,
+    EXTRACT(WEEK FROM DATE_TRUNC(DATE, WEEK(SATURDAY))) AS cal_week
+  FROM `wmt-drax-prod.DRAX_VM.VIEWS_ASSOCIATE_PERFORMANCE_DAY`
+  WHERE FC_ID = 'TPA'
+    AND DATE >= DATE_SUB(CURRENT_DATE(), INTERVAL 100 DAY)
+  ORDER BY week_start DESC
+  LIMIT 13
+),
+active_goals AS (
+  -- Get currently active goals per SC_CODE for TPA
+  SELECT
+    SC_CODE_ID,
+    GOAL,
+    GOAL_UOM,
+    ACTIVE_DATE,
+    INACTIVE_DATE
+  FROM `wmt-drax-prod.DRAX_VM.INPUTS_DEPARTMENTGOAL`
+  WHERE FC_ID = 'TPA'
+    AND (INACTIVE_DATE IS NULL OR INACTIVE_DATE >= DATE_SUB(CURRENT_DATE(), INTERVAL 100 DAY))
+)
+SELECT
+  p.NETWORK_NAME,
+  p.DEFAULT_ID       AS default_id,
+  p.FC_ID,
+  p.DATE             AS date,
+  wb.cal_year        AS WM_FISCAL_YEAR_APPROX,
+  wb.cal_week        AS WM_FISCAL_WEEK_APPROX,
+  wb.week_start,
+  p.SC_CODE_ID,
+  p.HOME_CODE_ID,
+  p.AREA,
+  p.SUPER_DEPARTMENT,
+  p.DEPARTMENT,
+  p.HOURS,
+  p.IDLE_HOURS,
+  p.VOLUME,
+  g.GOAL,
+  g.GOAL_UOM,
+  SAFE_DIVIDE(p.VOLUME, p.HOURS)  AS RATE_PER_HOUR,
+  SAFE_DIVIDE(SAFE_DIVIDE(p.VOLUME, p.HOURS), g.GOAL) AS PCT_TO_GOAL
+FROM `wmt-drax-prod.DRAX_VM.VIEWS_ASSOCIATE_PERFORMANCE_DAY` p
+INNER JOIN week_bounds wb
+  ON DATE_TRUNC(p.DATE, WEEK(SATURDAY)) = wb.week_start
+LEFT JOIN active_goals g
+  ON p.SC_CODE_ID = g.SC_CODE_ID
+  AND (g.ACTIVE_DATE IS NULL OR g.ACTIVE_DATE <= p.DATE)
+  AND (g.INACTIVE_DATE IS NULL OR g.INACTIVE_DATE >= p.DATE)
+WHERE p.FC_ID = 'TPA'
+  AND g.GOAL IS NOT NULL
+  AND p.HOURS > 0
+ORDER BY p.DATE DESC, p.NETWORK_NAME, p.SC_CODE_ID
