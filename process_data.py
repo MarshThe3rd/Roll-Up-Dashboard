@@ -215,12 +215,21 @@ def apply_training_curve(rows, lifetime_hours):
     for r in rows:
         assoc_sc_week_hours[(r["default_id"], r["SC_CODE_ID"])][(r["year"], r["week"])] += r["HOURS"]
 
-    # Hours before the 13-week window
-    assoc_sc_before = {}
-    for (assoc, sc), week_hrs in assoc_sc_week_hours.items():
-        in_window = sum(week_hrs.values())
-        lifetime = lifetime_hours.get((assoc, sc), in_window)
-        assoc_sc_before[(assoc, sc)] = max(0.0, lifetime - in_window)
+    # Hours before the 13-week window.
+    # The lifetime CSV contains PRE-WINDOW hours only (the BQ query
+    # already excludes the 13-week window), so we use it directly —
+    # no in_window subtraction needed. The old code subtracted in_window,
+    # which double-deflated hours and produced artificially low tiers.
+    assoc_sc_before = {
+        (assoc, sc): lifetime_hours.get((assoc, sc), 0.0)
+        for (assoc, sc) in assoc_sc_week_hours
+    }
+
+    # True all-time total = pre-window (CSV) + all hours in the window
+    assoc_sc_total = {
+        (assoc, sc): lifetime_hours.get((assoc, sc), 0.0) + sum(week_hrs.values())
+        for (assoc, sc), week_hrs in assoc_sc_week_hours.items()
+    }
 
     def hrs_at_week_start(assoc, sc, wk):
         before = assoc_sc_before.get((assoc, sc), 0.0)
@@ -257,7 +266,7 @@ def apply_training_curve(rows, lifetime_hours):
         if not r["GOAL"]:
             r.update({"TRAINING_MULTIPLIER": None, "ADJUSTED_GOAL": None,
                       "ADJUSTED_PCT_TO_GOAL": None, "IS_HOME_SUPERDEPT": None,
-                      "LIFETIME_SC_HOURS": None})
+                      "LIFETIME_SC_HOURS": None, "TOTAL_LIFETIME_SC_HOURS": None})
             continue
 
         assoc = r["default_id"]
@@ -267,6 +276,7 @@ def apply_training_curve(rows, lifetime_hours):
 
         hrs = hrs_at_week_start(assoc, sc, wk)
         r["LIFETIME_SC_HOURS"] = round(hrs, 2)
+        r["TOTAL_LIFETIME_SC_HOURS"] = round(assoc_sc_total.get((assoc, sc), hrs), 2)
         base_tier = get_training_tier(hrs)
 
         home_sd = assoc_home_superdept.get(assoc)
@@ -309,7 +319,7 @@ KEEP_COLS = [
     "SC_CODE_ID", "HOME_CODE_ID", "AREA", "SUPER_DEPARTMENT", "DEPARTMENT",
     "HOURS", "IDLE_HOURS", "VOLUME", "GOAL", "GOAL_UOM",
     "RATE_PER_HOUR", "PCT_TO_GOAL",
-    "LIFETIME_SC_HOURS", "TRAINING_MULTIPLIER", "ADJUSTED_GOAL",
+    "LIFETIME_SC_HOURS", "TOTAL_LIFETIME_SC_HOURS", "TRAINING_MULTIPLIER", "ADJUSTED_GOAL",
     "ADJUSTED_PCT_TO_GOAL", "IS_HOME_SUPERDEPT",
 ]
 
