@@ -17,6 +17,7 @@ bigquery_results/
 
 # Error dumps
 *_error.txt
+*_err.txt
 
 # OS
 .DS_Store
