@@ -76,6 +76,9 @@ HTML_TEMPLATE = r"""
     <div id="flag-wrap"><label class="block text-xs font-semibold text-gray-500 mb-1">Show</label>
       <select id="f-flag"><option value="">All Associates</option><option value="1">❗ Flagged Only</option></select></div>
     <button onclick="resetFilters()" class="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-sm font-semibold">Reset</button>
+    <button onclick="downloadCSV()" class="px-4 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-2 transition-colors" style="background:var(--wm-blue)" onmouseover="this.style.background='#0047c4'" onmouseout="this.style.background='var(--wm-blue)'">
+      \u{1F4E5} Download Filtered Data
+    </button>
   </div>
 </div>
 
@@ -524,6 +527,74 @@ function renderDailyTable(rows,flags){
   }
   h+=`</tbody></table><p class="px-4 py-2 text-xs text-gray-400">${vis.length.toLocaleString()} rows. Sorted date desc.</p>`;
   return h;
+}
+
+// ---- CSV Download ----
+function downloadCSV(){
+  const rows=getRows();
+  if(!rows.length){alert('No data matches the current filters.');return;}
+
+  const esc=v=>{
+    if(v==null||v==='')return'';
+    const s=String(v);
+    return s.includes(',')||s.includes('"')||s.includes('\n')?`"${s.replace(/"/g,'""')}"`:s;
+  };
+
+  const cols=[
+    {h:'WM_FISCAL_WEEK',    fn:r=>`FY${r.year}-W${String(r.week).padStart(2,'0')}`},
+    {h:'WM_FISCAL_WEEK_START',fn:r=>r.week_start||''},
+    {h:'DATE',              fn:r=>r.date},
+    {h:'USER_ID',           fn:r=>r.default_id},
+    {h:'ASSOCIATE_NAME',    fn:r=>{const a=DATA.associates[r.default_id];return a&&a.name&&a.name!==r.default_id?a.name:'';}},
+    {h:'SHIFT',             fn:r=>{const a=DATA.associates[r.default_id];return a?a.shift||'':'';}},
+    {h:'SC_CODE_ID',        fn:r=>r.SC_CODE_ID},
+    {h:'DEPARTMENT',        fn:r=>r.DEPARTMENT||''},
+    {h:'SUPER_DEPARTMENT',  fn:r=>r.SUPER_DEPARTMENT||''},
+    {h:'AREA',              fn:r=>r.AREA||''},
+    {h:'HOME_CODE_ID',      fn:r=>r.HOME_CODE_ID||''},
+    {h:'IS_HOME_SUPERDEPT', fn:r=>r.IS_HOME_SUPERDEPT||''},
+    {h:'HOURS',             fn:r=>r.HOURS??''},
+    {h:'IDLE_HOURS',        fn:r=>r.IDLE_HOURS??''},
+    {h:'IDLE_PCT',          fn:r=>r.HOURS>0?((r.IDLE_HOURS||0)/r.HOURS*100).toFixed(2):''},
+    {h:'VOLUME',            fn:r=>r.VOLUME??''},
+    {h:'GOAL',              fn:r=>r.GOAL??''},
+    {h:'GOAL_UOM',          fn:r=>r.GOAL_UOM||''},
+    {h:'RATE_PER_HOUR',     fn:r=>r.RATE_PER_HOUR??''},
+    {h:'PCT_TO_GOAL',       fn:r=>r.PCT_TO_GOAL??''},
+    {h:'TRAINING_MULTIPLIER',fn:r=>r.TRAINING_MULTIPLIER??''},
+    {h:'ADJUSTED_GOAL',     fn:r=>r.ADJUSTED_GOAL??''},
+    {h:'ADJUSTED_PCT_TO_GOAL',fn:r=>r.ADJUSTED_PCT_TO_GOAL??''},
+    {h:'LIFETIME_SC_HOURS', fn:r=>r.LIFETIME_SC_HOURS??''},
+  ];
+
+  const header=cols.map(c=>c.h).join(',');
+  const body=rows.map(r=>cols.map(c=>esc(c.fn(r))).join(',')).join('\n');
+  // UTF-8 BOM so Excel opens it correctly
+  const csv='\uFEFF'+header+'\n'+body;
+
+  // Build descriptive filename from active filters
+  const parts=['TPA_Productivity'];
+  if(filters.shift)parts.push('Shift_'+filters.shift);
+  if(filters.sd)parts.push(filters.sd.replace(/\s+/g,'_'));
+  if(filters.sc)parts.push(filters.sc);
+  if(filters.assoc){
+    const a=DATA.associates[filters.assoc];
+    parts.push((a&&a.name?a.name:filters.assoc).replace(/\s+/g,'_'));
+  }
+  const aw=getActiveWeeks();
+  if(aw.length<DATA.weeks.length){
+    parts.push(wkLbl(aw[0])+'_to_'+wkLbl(aw[aw.length-1]));
+  }
+  parts.push(new Date().toISOString().slice(0,10));
+  const filename=parts.join('_')+'.csv';
+
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;a.style.display='none';
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a);},500);
+  console.log(`Downloaded ${rows.length.toLocaleString()} rows as ${filename}`);
 }
 
 // ---- Tabs ----
