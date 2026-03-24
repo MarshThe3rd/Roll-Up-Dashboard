@@ -19,6 +19,7 @@ HTML_TEMPLATE = r"""
 <title>FC TPA — Associate Productivity Dashboard</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
   :root{--wm-blue:#0053e2;--wm-spark:#ffc220;--wm-green:#2a8703;--wm-red:#ea1100;}
   body{font-family:'Segoe UI',system-ui,sans-serif;background:#f3f4f6;}
@@ -107,7 +108,7 @@ HTML_TEMPLATE = r"""
     <div class="bg-white rounded-2xl shadow p-5 mb-4">
       <h2 class="font-bold text-sm text-gray-600 mb-1">Overall Weekly Performance (All SC Codes Combined)</h2>
       <p class="text-xs text-gray-400 mb-3">Weighted avg adjusted % to goal + idle % overlay</p>
-      <div class="chart-wrap" style="height:280px"><canvas id="chart-overall"></canvas></div>
+      <div class="chart-wrap" style="height:320px"><canvas id="chart-overall"></canvas></div>
     </div>
     <h2 class="font-bold text-sm text-gray-600 mb-3">Performance by SC Code</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" id="per-sc-grid"></div>
@@ -346,12 +347,38 @@ function renderOverallChart(rows){
   const ptClr=pctVals.map(v=>v==null?'#9ca3af':v>=100?'#2a8703':v>=90?'#f59e0b':v>=80?'#f97316':'#ea1100');
   destroy('overall');
   charts['overall']=new Chart(document.getElementById('chart-overall').getContext('2d'),{
+    plugins:[ChartDataLabels],
     data:{labels,datasets:[
       {type:'line',label:'Adj % to Goal',data:pctVals,borderColor:'#0053e2',backgroundColor:'rgba(0,83,226,.08)',fill:true,tension:.35,pointRadius:6,pointBackgroundColor:ptClr,yAxisID:'y'},
       {type:'line',label:'Idle %',data:idleVals,borderColor:'#f97316',backgroundColor:'transparent',tension:.35,pointRadius:4,borderDash:[5,4],yAxisID:'y'},
       {type:'line',label:'100% Goal',data:labels.map(()=>100),borderColor:'#ffc220',borderWidth:2,borderDash:[7,4],pointRadius:0,fill:false,yAxisID:'y'},
     ]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{boxWidth:12}},tooltip:{mode:'index',intersect:false}},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'top',labels:{boxWidth:12}},
+        tooltip:{mode:'index',intersect:false},
+        datalabels:{
+          display:ctx=>ctx.datasetIndex<2&&ctx.dataset.data[ctx.dataIndex]!=null,
+          formatter:(v,ctx)=>v!=null?v.toFixed(1)+'%':null,
+          font:{weight:'bold',size:10},
+          color:ctx=>{
+            const v=ctx.dataset.data[ctx.dataIndex];
+            if(ctx.datasetIndex===1)return'#c2410c';
+            return v>=100?'#15803d':v>=90?'#92400e':v>=80?'#9a3412':'#7f1d1d';
+          },
+          backgroundColor:ctx=>{
+            if(ctx.datasetIndex===1)return'rgba(255,237,213,.85)';
+            const v=ctx.dataset.data[ctx.dataIndex];
+            return v>=100?'rgba(220,252,231,.85)':v>=90?'rgba(254,249,195,.85)':v>=80?'rgba(255,237,213,.85)':'rgba(254,226,226,.85)';
+          },
+          borderRadius:4,
+          padding:{top:3,bottom:3,left:5,right:5},
+          anchor:ctx=>ctx.datasetIndex===1?'start':'end',
+          align:ctx=>ctx.datasetIndex===1?'bottom':'top',
+          offset:4,
+          clamp:true,
+        }
+      },
       scales:{y:{min:0,suggestedMax:160,ticks:{callback:v=>v+'%'},title:{display:true,text:'% (Goal & Idle)'}},x:{}}}
   });
 }
