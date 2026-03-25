@@ -3,11 +3,18 @@ HTML Dashboard Builder — TPA Associate Productivity
 Generates a self-contained HTML dashboard with embedded JSON data.
 """
 import json
+from quality_tab_html import QUALITY_HTML
+from quality_tab_js   import QUALITY_JS
 
 
 def build_html(payload):
     json_data = json.dumps(payload, separators=(',', ':'))
-    return HTML_TEMPLATE.replace('__DATA_PLACEHOLDER__', json_data)
+    return (
+        HTML_TEMPLATE
+        .replace('__DATA_PLACEHOLDER__', json_data)
+        .replace('__QUALITY_HTML__', QUALITY_HTML)
+        .replace('__QUALITY_JS__',   QUALITY_JS)
+    )
 
 
 HTML_TEMPLATE = r"""
@@ -118,12 +125,18 @@ HTML_TEMPLATE = r"""
   </div>
 
   <!-- Tabs + Table -->
-  <div class="flex gap-1"><button class="tab-btn active" id="tab-wk" onclick="switchTab('weekly')">Weekly View</button><button class="tab-btn" id="tab-dy" onclick="switchTab('daily')">Daily View</button></div>
-  <div class="bg-white shadow rounded-b-2xl rounded-tr-2xl overflow-x-auto"><div id="tbl-content"></div></div>
-  <p class="text-xs text-gray-400 mt-2">
+  <div class="flex gap-1">
+    <button class="tab-btn active" id="tab-wk" onclick="switchTab('weekly')">&#128200; Weekly View</button>
+    <button class="tab-btn" id="tab-dy" onclick="switchTab('daily')">&#128197; Daily View</button>
+    <button class="tab-btn" id="tab-ql" onclick="switchTab('quality')">&#9888;&#65039; Quality &amp; Errors</button>
+  </div>
+  <div class="bg-white shadow rounded-b-2xl rounded-tr-2xl overflow-x-auto" id="prod-table-wrap"><div id="tbl-content"></div></div>
+  <p class="text-xs text-gray-400 mt-2" id="prod-legend">
     Training: 0–40h=25% &bull; 41–80h=50% &bull; 81–120h=75% &bull; 120+h=100%. Pick: per-SC independent. Others: cross-SC carry-over, 90% cap outside home super-dept.
     <span class="badge-flag">FLAG</span> = &lt;100% adj. goal in 4+ of 13 weeks AND most recent week.
   </p>
+
+  __QUALITY_HTML__
 </div>
 
 <script>
@@ -602,6 +615,11 @@ function switchTab(t){
   activeTab=t;
   document.getElementById('tab-wk').className='tab-btn'+(t==='weekly'?' active':'');
   document.getElementById('tab-dy').className='tab-btn'+(t==='daily'?' active':'');
+  document.getElementById('tab-ql').className='tab-btn'+(t==='quality'?' active':'');
+  const isQuality=(t==='quality');
+  document.getElementById('quality-section').classList.toggle('hidden',!isQuality);
+  document.getElementById('prod-table-wrap').classList.toggle('hidden',isQuality);
+  document.getElementById('prod-legend').classList.toggle('hidden',isQuality);
   render();
 }
 
@@ -632,12 +650,18 @@ function render(){
 
   document.getElementById('tbl-content').innerHTML=
     activeTab==='weekly'?renderWeeklyTable(rows,flags):renderDailyTable(rows,flags);
+
+  if(activeTab==='quality') renderQ();
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('hdr-date').textContent='Generated: '+new Date().toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'});
-  initFilters();render();
+  initFilters();
+  if(DATA.quality && DATA.quality.errors) initQFilters();
+  render();
 });
+
+__QUALITY_JS__
 </script>
 </body></html>
 """.strip()

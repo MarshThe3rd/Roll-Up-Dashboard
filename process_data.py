@@ -384,8 +384,20 @@ def main():
     print("\n[4/5] Applying training curve...")
     perf = apply_training_curve(perf, lifetime)
 
-    print("\n[5/5] Building HTML dashboard...")
+    print("\n[5/6] Loading quality / error data from Access DB...")
+    quality_payload = {}
+    try:
+        import sys, os
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from fetch_quality_data import fetch_quality
+        assoc_names = {aid: v["name"] for aid, v in associates.items()}
+        quality_payload = fetch_quality(assoc_names)
+    except Exception as exc:
+        print(f"  WARNING: quality data skipped — {exc}")
+
+    print("\n[6/6] Building HTML dashboard...")
     payload = build_json_payload(perf, sc_info, associates)
+    payload["quality"] = quality_payload
     from html_builder import build_html
     html = build_html(payload)
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
@@ -396,6 +408,8 @@ def main():
     print(f"  Weeks    : {len(payload['weeks'])}")
     print(f"  SC Codes : {len(payload['sc_codes'])}")
     print(f"  Associates: {len(payload['associates'])}")
+    if quality_payload:
+        print(f"  Quality  : {len(quality_payload.get('errors', []))} error events across {len(quality_payload.get('weeks', []))} weeks")
 
     print("\n[DONE] Opening dashboard...")
     import subprocess
