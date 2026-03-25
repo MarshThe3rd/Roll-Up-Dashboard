@@ -9,10 +9,10 @@ QUALITY_JS = r"""
 // ============================================================
 const Q = DATA.quality || {};
 const Q_CAT_CLR = {
-  Picking:'#0053e2', Packing:'#7c3aed', RSR:'#f97316', Receiving:'#2a8703'
+  Picking:'#0053e2', Packing:'#c026d3', RSR:'#ea1100', Receiving:'#2a8703'
 };
 const Q_CAT_LIGHT = {
-  Picking:'#dbeafe', Packing:'#ede9fe', RSR:'#ffedd5', Receiving:'#dcfce7'
+  Picking:'#dbeafe', Packing:'#fae8ff', RSR:'#fee2e2', Receiving:'#dcfce7'
 };
 const qCharts = {};
 const qFilters = {category:'', errorCode:'', shift:'', inclNonPunitive:false};
@@ -142,37 +142,7 @@ function renderQTrend(errs){
   );
 }
 
-// --- Team donut chart (by error desc) ---
-function renderQDonut(errs){
-  const byDesc={};
-  errs.forEach(e=>{ byDesc[e.error_desc]=(byDesc[e.error_desc]||0)+e.error_qty; });
-  const entries=Object.entries(byDesc).sort((a,b)=>b[1]-a[1]).slice(0,12);
-  const palette=[
-    '#0053e2','#ea1100','#7c3aed','#2a8703','#f97316','#0891b2',
-    '#c026d3','#65a30d','#854d0e','#0369a1','#d97706','#6b7280'
-  ];
-  destroyQ('donut');
-  qCharts['donut'] = new Chart(
-    document.getElementById('q-chart-donut').getContext('2d'),{
-      type:'doughnut',
-      data:{
-        labels: entries.map(([d])=>d.replace(/^\w+ - /,'')),
-        datasets:[{
-          data: entries.map(([,v])=>v),
-          backgroundColor: palette.slice(0,entries.length),
-          borderWidth:2, borderColor:'#fff'
-        }]
-      },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{
-          legend:{position:'right',labels:{boxWidth:12,font:{size:10}}},
-          tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.parsed.toLocaleString()} errors`}}
-        }
-      }
-    }
-  );
-}
+
 
 // --- Leaderboard ---
 function renderQLeaderboard(errs){
@@ -198,7 +168,7 @@ function renderQLeaderboard(errs){
   let h='<table class="w-full"><thead><tr>';
   h+='<th class="text-center">Rank</th><th class="text-left" style="min-width:160px">Associate</th>';
   h+='<th class="text-right">Total Qty</th>';
-  cats.forEach(cat=>h+=`<th style="color:${Q_CAT_CLR[cat]}">${cat}</th>`);
+  cats.forEach(cat=>h+=`<th>${cat}</th>`);
   h+='<th>Error Rate<br><span style="font-weight:400;font-size:.65rem">per 1k units</span></th>';
   qw.forEach(w=>h+=`<th>${w.label}<br><span style="font-weight:400;font-size:.62rem">${w.week_start}</span></th>`);
   h+='</tr></thead><tbody>';
@@ -360,31 +330,7 @@ function renderQAssocProfile(uid, assocErrs, teamErrs){
     }
   );
 
-  // ----- Donut: category mix -----
-  const catQty = {};
-  assocErrs.forEach(e=>{ catQty[e.category]=(catQty[e.category]||0)+e.error_qty; });
-  const activeCats = cats.filter(c=>catQty[c]>0);
-  destroyQ('assoc-donut');
-  qCharts['assoc-donut'] = new Chart(
-    document.getElementById('q-chart-assoc-donut').getContext('2d'),{
-      type:'doughnut',
-      data:{
-        labels: activeCats,
-        datasets:[{
-          data: activeCats.map(c=>catQty[c]),
-          backgroundColor: activeCats.map(c=>Q_CAT_CLR[c]),
-          borderWidth:2, borderColor:'#fff'
-        }]
-      },
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{
-          legend:{position:'bottom',labels:{boxWidth:14}},
-          tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.parsed.toLocaleString()} errors`}}
-        }
-      }
-    }
-  );
+
 
   // ----- Horizontal bar: top 8 error types -----
   const byDesc={};
@@ -416,7 +362,7 @@ function renderQAssocProfile(uid, assocErrs, teamErrs){
   // ----- Week-by-week table -----
   let t='<table class="w-full"><thead><tr>';
   t+='<th>Week</th><th>Date</th>';
-  cats.forEach(c=>t+=`<th style="color:${Q_CAT_CLR[c]}">${c}</th>`);
+  cats.forEach(c=>t+=`<th>${c}</th>`);
   t+='<th>Total</th><th>Rate/1k</th></tr></thead><tbody>';
   qw.forEach(w=>{
     const k=qWkKey(w);
@@ -505,7 +451,6 @@ function renderQ(){
 
     renderQKPIs(errs);
     renderQTrend(errs);
-    renderQDonut(errs);
 
     if(hasAssoc){
       renderQAssocProfile(uid, errs, teamErrs);

@@ -46,15 +46,9 @@ QUALITY_HTML = r"""
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5" id="q-kpis"></div>
 
   <!-- Charts row (always visible) -->
-  <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-5">
-    <div class="xl:col-span-2 bg-white rounded-2xl shadow p-5">
-      <h2 class="font-bold text-sm text-gray-600 mb-3">Weekly Error Count by Category (13 Weeks)</h2>
-      <div style="height:270px"><canvas id="q-chart-trend"></canvas></div>
-    </div>
-    <div class="bg-white rounded-2xl shadow p-5">
-      <h2 class="font-bold text-sm text-gray-600 mb-3">Errors by Type</h2>
-      <div style="height:270px"><canvas id="q-chart-donut"></canvas></div>
-    </div>
+  <div class="bg-white rounded-2xl shadow p-5 mb-5">
+    <h2 class="font-bold text-sm text-gray-600 mb-3">Weekly Error Count by Category (13 Weeks)</h2>
+    <div style="height:270px"><canvas id="q-chart-trend"></canvas></div>
   </div>
 
   <!-- ============================================================ -->
@@ -65,18 +59,11 @@ QUALITY_HTML = r"""
     <!-- Banner: name + summary KPIs -->
     <div class="bg-white rounded-2xl shadow p-5 mb-4" id="q-assoc-banner"></div>
 
-    <!-- Row 1: weekly trend (2/3) + category donut (1/3) -->
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
-      <div class="xl:col-span-2 bg-white rounded-2xl shadow p-5">
-        <h2 class="font-bold text-sm text-gray-600 mb-2">&#128200; Weekly Errors vs Team Average</h2>
-        <p class="text-xs text-gray-400 mb-2">Associate error qty per week (red) against the per-associate team average (dashed blue).</p>
-        <div style="height:260px"><canvas id="q-chart-assoc-trend"></canvas></div>
-      </div>
-      <div class="bg-white rounded-2xl shadow p-5">
-        <h2 class="font-bold text-sm text-gray-600 mb-2">&#127775; Error Category Mix</h2>
-        <p class="text-xs text-gray-400 mb-2">Breakdown of this associate's errors by category.</p>
-        <div style="height:260px"><canvas id="q-chart-assoc-donut"></canvas></div>
-      </div>
+    <!-- Row 1: weekly trend full width -->
+    <div class="bg-white rounded-2xl shadow p-5 mb-4">
+      <h2 class="font-bold text-sm text-gray-600 mb-2">&#128200; Weekly Errors vs Team Average</h2>
+      <p class="text-xs text-gray-400 mb-2">Associate error qty per week (red) against the per-associate team average (dashed blue).</p>
+      <div style="height:260px"><canvas id="q-chart-assoc-trend"></canvas></div>
     </div>
 
     <!-- Row 2: top error types bar (1/2) + week-by-week table (1/2) -->
