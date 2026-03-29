@@ -351,11 +351,14 @@ function computeWeeksBelow(aid,rows){
 function renderOverallChart(rows){
   const wkMap={};
   for(const r of rows){
+    // Denominator = goal-eligible hours only (excludes support/meeting/utility rows).
+    // Consistent with renderAggChart, renderPerSCCharts, and the other TPA tool.
+    if(r.ADJUSTED_PCT_TO_GOAL==null||r.GOAL==null)continue;
     const wk=`${r.year}-${r.week}`;
     if(!wkMap[wk])wkMap[wk]={p:0,h:0,ih:0};
     wkMap[wk].ih+=r.IDLE_HOURS||0;
     wkMap[wk].h+=r.HOURS||0;
-    if(r.ADJUSTED_PCT_TO_GOAL!=null&&r.GOAL!=null){wkMap[wk].p+=r.ADJUSTED_PCT_TO_GOAL*(r.HOURS||0);}
+    wkMap[wk].p+=r.ADJUSTED_PCT_TO_GOAL*(r.HOURS||0);
   }
   const aw=getActiveWeeks(),labels=aw.map(wkLbl);
   const pctVals=aw.map(w=>{const e=wkMap[`${w.year}-${w.week}`];return e&&e.h>0?parseFloat((e.p/e.h).toFixed(2)):null;});
