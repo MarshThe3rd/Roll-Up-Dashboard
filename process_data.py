@@ -99,26 +99,50 @@ def load_performance(path, associates):
 
 
 def load_lifetime(path):
-    """Loads all-time hours per (default_id, SC_CODE_ID).
+    """Loads lifetime hours and returns (week_lookup, totals).
 
-    Three defensive fixes vs. the original:
-    1. utf-8-sig — handles BOM that BigQuery CSV exports include;
-       without it the first record's key gets a \ufeff prefix and
-       silently misses the lifetime lookup, zeroing that associate's
-       pre-window hours.
-    2. .strip() on both key fields — guards against trailing whitespace
-       that causes key mismatches on lookup.
-    3. Accumulate with += instead of overwrite — in case the query
-       returns more than one row per (assoc, sc) pair.
+    Handles two CSV schemas transparently:
+
+    NEW schema (produced by updated query_lifetime.sql) — preferred:
+      Columns: default_id, SC_CODE_ID, WM_FISCAL_YEAR, WM_FISCAL_WEEK,
+               hours_at_week_start, total_lifetime_hours
+      week_lookup : (default_id, SC_CODE_ID, year, week) -> hours_at_week_start
+      totals      : (default_id, SC_CODE_ID)             -> total_lifetime_hours
+
+    OLD schema (all-time total only) — backward-compatible fallback:
+      Columns: default_id, SC_CODE_ID, total_lifetime_hours
+      week_lookup : {} (empty — apply_training_curve will reconstruct per-week
+                        values from the in-window performance rows)
+      totals      : (default_id, SC_CODE_ID) -> total_lifetime_hours
     """
-    data = {}
+    week_lookup = {}
+    totals = {}
     with open(path, newline="", encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            key = (row["default_id"].strip(), row["SC_CODE_ID"].strip())
-            hours = _float(row["total_lifetime_hours"]) or 0.0
-            data[key] = data.get(key, 0.0) + hours
-    print(f"  Loaded {len(data):,} lifetime hour records")
-    return data
+        reader = csv.DictReader(f)
+        new_schema = "WM_FISCAL_YEAR" in (reader.fieldnames or [])
+        for row in reader:
+            default_id = row["default_id"].strip()
+            sc = row["SC_CODE_ID"].strip()
+            if not (default_id and sc):
+                continue
+            hrs_total = _float(row["total_lifetime_hours"]) or 0.0
+            tot_key = (default_id, sc)
+            totals[tot_key] = max(totals.get(tot_key, 0.0), hrs_total)
+            if new_schema:
+                year = _int(row["WM_FISCAL_YEAR"])
+                week = _int(row["WM_FISCAL_WEEK"])
+                if year is None or week is None:
+                    continue
+                hrs_start = _float(row["hours_at_week_start"]) or 0.0
+                wk_key = (default_id, sc, year, week)
+                week_lookup[wk_key] = week_lookup.get(wk_key, 0.0) + hrs_start
+
+    schema_name = "new week-level" if new_schema else "old all-time (fallback mode)"
+    count = len(week_lookup) if new_schema else len(totals)
+    print(f"  Loaded {count:,} lifetime records ({schema_name})")
+    if not new_schema:
+        print("  NOTE: run run_lifetime.bat to upgrade to week-level lifetime CSV")
+    return week_lookup, totals
 
 
 def load_sc_goals(path):
@@ -204,38 +228,41 @@ def get_training_tier(hours):
     return 1.00
 
 
-def apply_training_curve(rows, lifetime_hours):
-    all_weeks = sorted(set(
-        (r["year"], r["week"]) for r in rows if r["year"] and r["week"]
-    ))
-    week_rank = {w: i for i, w in enumerate(all_weeks)}
+def apply_training_curve(rows, lifetime_hours, lifetime_totals):
+    # lifetime_hours : (default_id, SC_CODE_ID, year, week) -> hours_at_week_start
+    #                  Empty dict signals old CSV schema — fall back to in-window calc.
+    # lifetime_totals: (default_id, SC_CODE_ID)             -> total_lifetime_hours
 
-    # Accumulate hours per (assoc, sc) per week within window
-    assoc_sc_week_hours = defaultdict(lambda: defaultdict(float))
-    for r in rows:
-        assoc_sc_week_hours[(r["default_id"], r["SC_CODE_ID"])][(r["year"], r["week"])] += r["HOURS"]
-
-    # Hours before the 13-week window.
-    # The lifetime CSV is an ALL-TIME total (pre-window + window combined).
-    # Subtract window hours to isolate what the associate had BEFORE the window.
-    # Fallback: if (assoc, sc) is missing from the CSV, assume lifetime == in_window
-    # (i.e. they are brand-new to this SC code, zero pre-window history).
-    assoc_sc_before = {}
-    assoc_sc_total = {}
-    for (assoc, sc), week_hrs in assoc_sc_week_hours.items():
-        in_window = sum(week_hrs.values())
-        lifetime = lifetime_hours.get((assoc, sc), in_window)
-        assoc_sc_before[(assoc, sc)] = max(0.0, lifetime - in_window)
-        assoc_sc_total[(assoc, sc)] = lifetime   # CSV is already all-time
-
-    def hrs_at_week_start(assoc, sc, wk):
-        before = assoc_sc_before.get((assoc, sc), 0.0)
-        cur_rank = week_rank.get(wk, 0)
-        prior = sum(
-            h for w, h in assoc_sc_week_hours[(assoc, sc)].items()
-            if week_rank.get(w, 0) < cur_rank
+    # --- hrs_fn: returns hours accumulated BEFORE a given fiscal week ---------------
+    if lifetime_hours:
+        # New schema: direct O(1) lookup, week-start value pre-computed by SQL.
+        def hrs_fn(assoc, sc, year, week):
+            return lifetime_hours.get((assoc, sc, year, week), 0.0)
+    else:
+        # Old schema: reconstruct from in-window rows + all-time total.
+        # This mirrors the original logic that was removed when the SQL was upgraded.
+        sc_week_hours = defaultdict(lambda: defaultdict(float))
+        for r in rows:
+            key = (r["default_id"], r["SC_CODE_ID"])
+            sc_week_hours[key][(r["year"], r["week"])] += r["HOURS"] or 0.0
+        all_weeks_sorted = sorted(
+            set(wk for wh in sc_week_hours.values() for wk in wh)
         )
-        return before + prior
+        week_rank = {w: i for i, w in enumerate(all_weeks_sorted)}
+
+        def hrs_fn(assoc, sc, year, week):
+            key = (assoc, sc)
+            wk  = (year, week)
+            in_window = sum(sc_week_hours[key].values())
+            lt_total  = lifetime_totals.get(key, in_window)
+            before    = max(0.0, lt_total - in_window)
+            cur_rank  = week_rank.get(wk, 0)
+            prior     = sum(
+                h for w, h in sc_week_hours[key].items()
+                if week_rank.get(w, 0) < cur_rank
+            )
+            return before + prior
+    # -------------------------------------------------------------------------------
 
     sc_to_superdept = {r["SC_CODE_ID"]: r["SUPER_DEPARTMENT"] for r in rows if r["SUPER_DEPARTMENT"]}
 
@@ -252,9 +279,9 @@ def apply_training_curve(rows, lifetime_hours):
         if r["SUPER_DEPARTMENT"]:
             assoc_sd_scs[r["default_id"]][r["SUPER_DEPARTMENT"]].add(r["SC_CODE_ID"])
 
-    def fully_trained_in_sd(assoc, sd, wk):
+    def fully_trained_in_sd(assoc, sd, year, week):
         return any(
-            hrs_at_week_start(assoc, sc, wk) > 120
+            hrs_fn(assoc, sc, year, week) > 120
             for sc in assoc_sd_scs[assoc][sd]
         )
 
@@ -269,11 +296,12 @@ def apply_training_curve(rows, lifetime_hours):
         assoc = r["default_id"]
         sc = r["SC_CODE_ID"]
         sd = r["SUPER_DEPARTMENT"]
-        wk = (r["year"], r["week"])
+        year = r["year"]
+        week = r["week"]
 
-        hrs = hrs_at_week_start(assoc, sc, wk)
+        hrs = hrs_fn(assoc, sc, year, week)
         r["LIFETIME_SC_HOURS"] = round(hrs, 2)
-        r["TOTAL_LIFETIME_SC_HOURS"] = round(assoc_sc_total.get((assoc, sc), hrs), 2)
+        r["TOTAL_LIFETIME_SC_HOURS"] = round(lifetime_totals.get((assoc, sc), hrs), 2)
         base_tier = get_training_tier(hrs)
 
         home_sd = assoc_home_superdept.get(assoc)
@@ -285,7 +313,7 @@ def apply_training_curve(rows, lifetime_hours):
             if not is_home and mult == 1.00:
                 mult = 0.90
         else:
-            fully = fully_trained_in_sd(assoc, sd, wk)
+            fully = fully_trained_in_sd(assoc, sd, year, week)
             if fully and is_home:
                 mult = 1.00
             elif fully and not is_home:
@@ -372,7 +400,7 @@ def main():
     print("\n[1/5] Loading CSVs...")
     associates = load_associates(ASSOCIATES_CSV)
     perf = load_performance(PERF_CSV, associates)
-    lifetime = load_lifetime(LIFETIME_CSV)
+    lifetime, lifetime_totals = load_lifetime(LIFETIME_CSV)
     sc_info = load_sc_goals(SC_GOALS_CSV)
 
     print("\n[2/5] Normalizing weekly goals...")
@@ -382,7 +410,7 @@ def main():
     perf = apply_goal_overrides(perf)
 
     print("\n[4/5] Applying training curve...")
-    perf = apply_training_curve(perf, lifetime)
+    perf = apply_training_curve(perf, lifetime, lifetime_totals)
 
     print("\n[5/6] Loading quality / error data from Access DB...")
     quality_payload = {}
