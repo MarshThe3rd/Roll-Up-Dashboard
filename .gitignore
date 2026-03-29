@@ -22,3 +22,7 @@ bigquery_results/
 # OS
 .DS_Store
 Thumbs.db
+
+# PowerShell artifacts (un-expanded variable names from runner scripts)
+$($clean.Count)
+*.xlsx
