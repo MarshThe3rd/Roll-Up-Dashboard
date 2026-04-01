@@ -27,6 +27,9 @@ SC_INDEPENDENT_SUPERDEPTS = {"Pick"}
 GOAL_OVERRIDES = [
     # Pallet Putaway FY2026-W44 -> FY2027-W03: 38 -> 15
     {"sc_code": "018055008", "fy_week_start": (2026, 44), "fy_week_end": (2027, 3), "correct_goal": 15},
+    # Pallet Replen (019215009) has no entry in INPUTS_DEPARTMENTGOAL for TPA.
+    # Confirmed goal: 7 UPH. Apply permanently until Drax is updated.
+    {"sc_code": "019215009", "fy_week_start": (2026, 1), "fy_week_end": (2099, 52), "correct_goal": 7, "goal_uom": "UPH"},
 ]
 
 
@@ -207,6 +210,9 @@ def apply_goal_overrides(rows):
             if r["SC_CODE_ID"] == ov["sc_code"] and ov["fy_week_start"] <= yw <= ov["fy_week_end"]:
                 if r["GOAL"] != ov["correct_goal"]:
                     r["GOAL"] = ov["correct_goal"]
+                    # Backfill UOM when the SC code has no goal row in Drax at all
+                    if ov.get("goal_uom") and not r.get("GOAL_UOM"):
+                        r["GOAL_UOM"] = ov["goal_uom"]
                     if r["RATE_PER_HOUR"] is not None and ov["correct_goal"] > 0:
                         r["PCT_TO_GOAL"] = (r["RATE_PER_HOUR"] / ov["correct_goal"]) * 100
                     changed += 1
